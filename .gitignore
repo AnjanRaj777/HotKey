@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+*.spec
+config.json
+dist/
+build/
+.idea/
+.vscode/

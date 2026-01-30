@@ -4,29 +4,28 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QLineEdit,
 from ui.key_recorder import KeyRecorder
 
 class AddHotkeyDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, hotkey_data=None):
         super().__init__(parent)
-        self.setWindowTitle("Add Hotkey")
+        self.hotkey_data = hotkey_data
+        self.setWindowTitle("Edit Hotkey" if hotkey_data else "Add Hotkey")
         self.setFixedWidth(400)
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
 
-        # Trigger
+        # 1. Trigger Key
         layout.addWidget(QLabel("Trigger Key (e.g., ctrl+alt+t):"))
         self.trigger_input = KeyRecorder()
-        # self.trigger_input.setPlaceholderText("Press keys or type here...") # Set in class
         layout.addWidget(self.trigger_input)
 
-        # Action Type
+        # 2. Action Type (Create first, setup later)
         layout.addWidget(QLabel("Action Type:"))
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["run", "focus", "open_url"])
-        self.type_combo.currentTextChanged.connect(self.on_type_changed)
+        self.type_combo.addItems(["File", "Folder", "focus", "open_url"])
         layout.addWidget(self.type_combo)
 
-        # Target
+        # 3. Target (Create first)
         layout.addWidget(QLabel("Target:"))
         target_layout = QHBoxLayout()
         self.target_input = QLineEdit()
@@ -38,24 +37,45 @@ class AddHotkeyDialog(QDialog):
         
         layout.addLayout(target_layout)
 
-        # Block Key
+        # 4. Block Key
         self.block_cb = QCheckBox("Block original key (Suppress)")
         self.block_cb.setToolTip("If checked, the key combination will NOT be passed to other applications.")
         layout.addWidget(self.block_cb)
 
-        # Buttons
+        # 5. Buttons
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(self.validate_and_accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
-        self.on_type_changed(self.type_combo.currentText())
+        # --- Logic & Pre-filling ---
+        # Now that all widgets exist, we can safely connect signals and set values
+        
+        # Connect Type Change
+        self.type_combo.currentTextChanged.connect(self.on_type_changed)
+
+        if self.hotkey_data:
+            # Pre-fill data
+            self.trigger_input.setText(self.hotkey_data.get("trigger", ""))
+            self.target_input.setText(self.hotkey_data.get("target", ""))
+            self.block_cb.setChecked(self.hotkey_data.get("suppress", False))
+            
+            # Set Type last to trigger on_type_changed correctly with data
+            current_type = self.hotkey_data.get("type", "File")
+            self.type_combo.setCurrentText(current_type)
+        else:
+            # Default state
+            self.on_type_changed("File")
 
     def on_type_changed(self, text):
-        if text == "run":
+        if text == "File":
             self.browse_btn.setEnabled(True)
             self.browse_btn.setVisible(True)
-            self.target_input.setPlaceholderText("Path to executable or command")
+            self.target_input.setPlaceholderText("Path to executable or file")
+        elif text == "Folder":
+            self.browse_btn.setEnabled(True)
+            self.browse_btn.setVisible(True)
+            self.target_input.setPlaceholderText("Path to folder")
         elif text == "open_url":
             self.browse_btn.setEnabled(False)
             self.browse_btn.setVisible(False)
@@ -66,9 +86,15 @@ class AddHotkeyDialog(QDialog):
             self.target_input.setPlaceholderText("Window Title to match")
 
     def browse_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select Executable")
-        if file_path:
-            self.target_input.setText(file_path)
+        action_type = self.type_combo.currentText()
+        if action_type == "Folder":
+             folder_path = QFileDialog.getExistingDirectory(self, "Select Folder")
+             if folder_path:
+                 self.target_input.setText(folder_path)
+        else: # File (or others, but button is hidden)
+            file_path, _ = QFileDialog.getOpenFileName(self, "Select File")
+            if file_path:
+                self.target_input.setText(file_path)
 
     def validate_and_accept(self):
         if not self.trigger_input.text().strip():

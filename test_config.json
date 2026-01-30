@@ -1,0 +1,18 @@
+{
+    "hotkeys": [
+        {
+            "trigger": "ctrl+t",
+            "type": "run",
+            "target": "cmd.exe",
+            "active": true,
+            "suppress": false
+        }
+    ],
+    "snippets": [
+        {
+            "trigger": "omw",
+            "replacement": "On my way!",
+            "active": true
+        }
+    ]
+}

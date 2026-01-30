@@ -1,5 +1,6 @@
 import keyboard
 import time
+from utils import set_clipboard
 
 class TextExpander:
     def __init__(self, config_manager):
@@ -33,41 +34,45 @@ class TextExpander:
 
     def reload_snippets(self):
         raw_snippets = self.config_manager.get_snippets()
-        self.snippets = {s["trigger"]: s["replacement"] for s in raw_snippets if s.get("active", True)}
+        # Store lowercased triggers for case-insensitive matching
+        self.snippets = {s["trigger"].lower(): s["replacement"] for s in raw_snippets if s.get("active", True)}
 
     def _on_key_press(self, event):
         if not self.is_running:
             return
 
         name = event.name
-        # print(f"DEBUG: Key pressed: '{name}' | Current Buffer: '{self.current_word}'", flush=True)
         
         # Ignore modifiers being pressed alone
-        if name in ("ctrl", "alt", "shift", "windows", "caps lock", "tab", "shift"):
+        if name in ("ctrl", "alt", "shift", "windows", "caps lock", "shift", "right shift"):
             return
 
         if name == "backspace":
             # Remove last char
             if len(self.current_word) > 0:
                 self.current_word = self.current_word[:-1]
-                print(f"DEBUG: Backspace. Buffer: '{self.current_word}'", flush=True)
-        elif name == "space" or name == "enter":
-            print(f"DEBUG: Delimiter '{name}'. Checking match for '{self.current_word}' in {list(self.snippets.keys())}", flush=True)
-            # Check for match
-            if self.current_word in self.snippets:
-                print(f"DEBUG: Match found! Swapping '{self.current_word}' -> '{self.snippets[self.current_word]}'", flush=True)
-                self._perform_swap(self.current_word, self.snippets[self.current_word])
+                # print(f"DEBUG: Backspace. Buffer: '{self.current_word}'", flush=True)
+        
+        # Delimiters: Space, Enter, Tab, and Punctuation
+        elif name in ("space", "enter", "tab", ".", ",", "!", "?", ";", ":"):
+            # Check for match (case-insensitive)
+            # print(f"DEBUG: Delimiter '{name}'. Checking match for '{self.current_word}'", flush=True)
+            candidate = self.current_word.lower()
+            if candidate in self.snippets:
+                # print(f"DEBUG: Match found! Swapping '{self.current_word}' -> '{self.snippets[candidate]}'", flush=True)
+                self._perform_swap(self.current_word, self.snippets[candidate])
                 self.current_word = "" # Reset after swap
             else:
                 self.current_word = "" # Reset on delimiter if no match
         elif len(name) == 1:
             # Regular character
             self.current_word += name
-            print(f"DEBUG: Appended '{name}'. Buffer: '{self.current_word}'", flush=True)
+            # print(f"DEBUG: Appended '{name}'. Buffer: '{self.current_word}'", flush=True)
         else:
             # Other navigation keys resets buffer
-            print(f"DEBUG: Resetting buffer due to key '{name}'", flush=True)
+            # print(f"DEBUG: Resetting buffer due to key '{name}'", flush=True)
             self.current_word = ""
+
 
     def _perform_swap(self, trigger, replacement):
         # Calculate backspaces needed: len(trigger) + 1 (for the delimiter)
@@ -80,7 +85,14 @@ class TextExpander:
         # Note: We need to ensure the system has processed the 'space' before we backspace it?
         # If we act too fast, we might backspace the trigger, then the 'space' appears?
         # Let's keep a small delay.
-        time.sleep(0.1) 
+        time.sleep(0.05) 
         
         keyboard.write('\b' * backspaces)
-        keyboard.write(replacement)
+        time.sleep(0.05) # Small buffer between delete and write
+        
+        # Use Clipboard Paste for reliability
+        if set_clipboard(replacement):
+            keyboard.send('ctrl+v')
+        else:
+            # Fallback to write if clipboard fails
+            keyboard.write(replacement, delay=0.01)

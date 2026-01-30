@@ -36,7 +36,7 @@ class HotkeyManager:
         # Define the callback closure
         def callback():
             print(f"Triggered: {trigger} -> {action_type}: {target}")
-            if action_type == "run":
+            if action_type in ("run", "File", "Folder"):
                 run_command(target)
             elif action_type == "focus":
                 focus_window(target)

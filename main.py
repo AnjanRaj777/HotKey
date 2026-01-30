@@ -11,12 +11,16 @@ def main():
     app.setQuitOnLastWindowClosed(False) # Keep app running when window is closed (minimized to tray)
 
     # Initialize Core Components
+    print("Starting main...")
     config_manager = ConfigManager()
+    print("Config loaded")
     hotkey_manager = HotkeyManager(config_manager)
     text_expander = TextExpander(config_manager)
     
     # Initialize UI
+    print("Initializing UI...")
     main_window = MainWindow(config_manager)
+    print("UI initialized")
     tray_icon = TrayIcon(main_window)
     tray_icon.show()
 
@@ -44,6 +48,7 @@ def main():
     main_window.add_hotkey_signal.connect(lambda t, typ, tar, sup: [config_manager.add_hotkey(t, typ, tar, sup), refresh_hotkeys()])
     main_window.remove_hotkey_signal.connect(lambda idx: [config_manager.remove_hotkey(idx), refresh_hotkeys()])
     main_window.toggle_hotkey_signal.connect(lambda idx, state: [config_manager.update_hotkey_status(idx, state), refresh_hotkeys()])
+    main_window.update_hotkey_signal.connect(lambda idx, data: [config_manager.update_hotkey(idx, data), refresh_hotkeys()])
     
     # Text Expansion Signals
     # Note: Accessing the tab directly or through a signal from main_window?
@@ -55,6 +60,10 @@ def main():
     te_tab.add_snippet_signal.connect(lambda trig, repl: [config_manager.add_snippet(trig, repl), refresh_snippets()])
     te_tab.remove_snippet_signal.connect(lambda idx: [config_manager.remove_snippet(idx), refresh_snippets()])
     te_tab.toggle_snippet_signal.connect(lambda idx, state: [config_manager.update_snippet_status(idx, state), refresh_snippets()])
+    te_tab.update_snippet_signal.connect(lambda idx, trig, repl: [config_manager.update_snippet(idx, trig, repl), refresh_snippets()])
+
+    # Import Signal
+    main_window.import_config_signal.connect(lambda: [refresh_hotkeys(), refresh_snippets()])
 
     
     # Handle "Close to Tray" signal

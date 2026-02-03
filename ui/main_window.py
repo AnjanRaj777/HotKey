@@ -1,14 +1,21 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QTableWidget, QTableWidgetItem, 
                              QHeaderView, QLabel, QCheckBox, QAbstractItemView,
+                             QHeaderView, QLabel, QCheckBox, QAbstractItemView, QLineEdit,
                              QInputDialog, QComboBox, QMessageBox, QTabWidget, QFileDialog, QSlider, QColorDialog, QStyle, QApplication)
-from PyQt6.QtGui import QAction, QIcon, QFont
+from PyQt6.QtGui import QAction, QIcon, QFont, QColor
 from PyQt6.QtCore import Qt, pyqtSignal
+import os
+from urllib.parse import urlparse
 from ui.add_hotkey_dialog import AddHotkeyDialog
 from startup_manager import StartupManager
 from ui.text_expansion_tab import TextExpansionTab
+from ui.workspaces_tab import WorkspacesTab
+from ui.windows_shortcuts_tab import WindowsShortcutsTab
 from ui.blur_effect import apply_blur
 from ui.themes import THEMES
+from PyQt6.QtCore import QFileSystemWatcher
+from context_menu_manager import ContextMenuManager
 
 class MainWindow(QMainWindow):
     # Signals to communicate with the controller/main logic
@@ -20,12 +27,20 @@ class MainWindow(QMainWindow):
     close_to_tray_signal = pyqtSignal()
     import_config_signal = pyqtSignal()
 
-    def __init__(self, config_manager):
+    def __init__(self, config_manager, workspace_manager=None):
         super().__init__()
         self.config_manager = config_manager
+        self.workspace_manager = workspace_manager
         self.setWindowTitle("Global Hotkey Manager")
         self.resize(600, 400)
         self.startup_manager = StartupManager()
+        self.context_menu_manager = ContextMenuManager()
+        
+        # File Watcher for config.json (to detect changes from CLI adds)
+        self.watcher = QFileSystemWatcher(self)
+        self.watcher.addPath(self.config_manager.config_file)
+        self.watcher.fileChanged.connect(self.on_config_file_changed)
+
         self.apply_appearance_settings()
         self.init_ui()
 
@@ -50,19 +65,43 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(self.status_label)
         header_layout.addStretch()
         header_layout.addWidget(self.toggle_listener_btn)
+        
+
+
         main_layout.addLayout(header_layout)
 
         # Tabs
         self.tabs = QTabWidget()
         
-        # Sort Combo
+        # Sort Combo (in Tab Corner)
         self.sort_combo = QComboBox()
         self.sort_combo.addItems(["Trigger (A-Z)", "Trigger (Z-A)", "Date Added (Newest)", "Active Status"])
-        self.sort_combo.setFixedWidth(150)
+        self.sort_combo.setFixedWidth(140)
         self.sort_combo.currentIndexChanged.connect(self.apply_sorting)
         
+        # Styling for the Sort Combo to fit the "White Box" area
+        self.sort_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #2b2b2b;
+                color: #e0e0e0;
+                border: 1px solid #444;
+                border-radius: 4px;
+                padding: 2px 5px;
+                font-size: 11px;
+            }
+            QComboBox::drop-down {
+                border-left: 1px solid #444;
+                width: 20px;
+            }
+            QComboBox:hover {
+                border: 1px solid #666;
+            }
+        """)
+
         self.tabs.setCornerWidget(self.sort_combo, Qt.Corner.TopRightCorner)
         self.tabs.currentChanged.connect(lambda: self.apply_sorting(self.sort_combo.currentIndex()))
+        
+
 
         main_layout.addWidget(self.tabs)
 
@@ -75,7 +114,17 @@ class MainWindow(QMainWindow):
         self.text_expansion_tab = TextExpansionTab(self.config_manager)
         self.tabs.addTab(self.text_expansion_tab, "Text Expansion")
 
-        # Tab 3: Settings
+        # Tab 3: Workspaces
+        if self.workspace_manager:
+            self.workspaces_tab = WorkspacesTab(self.config_manager, self.workspace_manager)
+            self.workspaces_tab.switch_workspace_signal.connect(self.on_switch_workspace)
+            self.tabs.addTab(self.workspaces_tab, "Workspaces")
+
+        # Tab 4: Windows Shortcuts
+        self.shortcuts_tab = WindowsShortcutsTab()
+        self.tabs.addTab(self.shortcuts_tab, "Win Shortcuts")
+
+        # Tab 5: Settings
         self.settings_tab = QWidget()
         self.init_settings_tab()
         self.tabs.addTab(self.settings_tab, "Settings")
@@ -89,6 +138,12 @@ class MainWindow(QMainWindow):
         self.startup_cb.setChecked(self.startup_manager.is_startup_enabled())
         self.startup_cb.toggled.connect(self.on_startup_toggled)
         layout.addWidget(self.startup_cb)
+
+        # Context Menu Integration
+        self.context_menu_cb = QCheckBox("Show in Explorer Context Menu (Add to HotKey)")
+        self.context_menu_cb.setChecked(self.config_manager.get_context_menu_enabled())
+        self.context_menu_cb.toggled.connect(self.on_context_menu_toggled)
+        layout.addWidget(self.context_menu_cb)
 
         layout.addSpacing(20)
 
@@ -196,10 +251,16 @@ class MainWindow(QMainWindow):
     def init_hotkey_tab(self):
         layout = QVBoxLayout(self.hotkey_tab)
         
+        # Search Bar
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search hotkeys...")
+        self.search_input.textChanged.connect(self.filter_hotkeys)
+        layout.addWidget(self.search_input)
+        
         # Table
         self.table = QTableWidget()
         self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels(["Active", "Trigger", "Type", "Target", "Block"])
+        self.table.setHorizontalHeaderLabels(["Active", "Trigger", "Type", "Target", "Name"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -246,7 +307,35 @@ class MainWindow(QMainWindow):
             self.table.setItem(i, 1, QTableWidgetItem(hk["trigger"]))
             self.table.setItem(i, 2, QTableWidgetItem(hk["type"]))
             self.table.setItem(i, 3, QTableWidgetItem(hk["target"]))
-            self.table.setItem(i, 4, QTableWidgetItem("Yes" if hk.get("suppress", False) else "No"))
+            
+            # Name Column Logic
+            target = hk["target"]
+            atype = hk["type"]
+            display_name = ""
+            
+            if atype in ("File", "run", "Folder"):
+                display_name = os.path.basename(os.path.normpath(target))
+            elif atype == "open_url":
+                try:
+                    parsed = urlparse(target)
+                    display_name = parsed.netloc if parsed.netloc else target
+                except:
+                    display_name = target
+            else:
+                display_name = target
+                
+            self.table.setItem(i, 4, QTableWidgetItem(display_name))
+
+    def filter_hotkeys(self, text):
+        text = text.lower()
+        for i in range(self.table.rowCount()):
+            match = False
+            # Check Trigger (col 1), Type (col 2), Name (col 4)
+            if (text in self.table.item(i, 1).text().lower() or 
+                text in self.table.item(i, 2).text().lower() or 
+                text in self.table.item(i, 4).text().lower()):
+                match = True
+            self.table.setRowHidden(i, not match)
 
     def emit_toggle_hotkey(self, index, state):
         is_active = (state == 2) # 2 is Checked
@@ -373,9 +462,20 @@ class MainWindow(QMainWindow):
         
         # Accent Color & Corner Radius
         # We target specific widgets to apply these overrides
+        
+        # Calculate luminance for text color
+        c = QColor(accent)
+        
+        # Simple luminance formula: 0.299R + 0.587G + 0.114B
+        luminance = (0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue())
+        
+        # If luminance is high (light color), use black text. Otherwise use white.
+        text_color = "#000000" if luminance > 128 else "#ffffff"
+        
         overrides += f"""
             QPushButton {{
                 background-color: {accent};
+                color: {text_color};
                 border-radius: {radius}px;
                 border: 1px solid {accent};
             }}
@@ -455,7 +555,9 @@ class MainWindow(QMainWindow):
 
     def on_accent_btn_clicked(self):
         current = self.config_manager.get_accent_color()
-        color = QColorDialog.getColor(initial=current, title="Select Accent Color")
+        # Ensure we pass a QColor object, not a string
+        initial_color = QColor(current) 
+        color = QColorDialog.getColor(initial=initial_color, title="Select Accent Color")
         if color.isValid():
             hex_color = color.name()
             self.config_manager.set_accent_color(hex_color)
@@ -492,3 +594,49 @@ class MainWindow(QMainWindow):
         else:
             self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
         self.show()
+
+    def on_context_menu_toggled(self, checked):
+        if checked:
+            success, msg = self.context_menu_manager.add_context_menu()
+            if success:
+                self.config_manager.set_context_menu_enabled(True)
+            else:
+                QMessageBox.critical(self, "Error", msg)
+                self.context_menu_cb.setChecked(False) # Revert
+        else:
+            success, msg = self.context_menu_manager.remove_context_menu()
+            if success:
+                self.config_manager.set_context_menu_enabled(False)
+            else:
+                QMessageBox.critical(self, "Error", msg)
+                self.context_menu_cb.setChecked(True) # Revert
+
+    def on_switch_workspace(self, workspace_id):
+        if self.workspace_manager:
+            self.workspace_manager.switch_to_workspace(workspace_id)
+            QMessageBox.information(self, "Workspace Switched", f"Switched to workspace ID: {workspace_id}")
+
+    def on_config_file_changed(self, path):
+        # Reload config from disk
+        print(f"Config file changed: {path}")
+        # Small delay might be needed if write is atomic/swap?
+        # But let's try direct reload
+        try:
+            self.config_manager.reload_config()
+            self.refresh_table()
+            
+            if hasattr(self, 'text_expansion_tab') and hasattr(self.text_expansion_tab, 'refresh_table'):
+                self.text_expansion_tab.refresh_table()
+            
+            if hasattr(self, 'workspaces_tab') and hasattr(self.workspaces_tab, 'refresh_list'):
+                self.workspaces_tab.refresh_list()
+            
+            # Emit signal to notify main controller (to reload hooks)
+            self.import_config_signal.emit()
+            
+            # Re-add path to watcher if it was deleted/moved (some editors do atomic write by swap)
+            if not self.watcher.files():
+                self.watcher.addPath(self.config_manager.config_file)
+                
+        except Exception as e:
+            print(f"Error reloading config: {e}")

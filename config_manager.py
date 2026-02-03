@@ -16,6 +16,9 @@ class ConfigManager:
         except (json.JSONDecodeError, IOError):
             return {"hotkeys": []}
 
+    def reload_config(self):
+        self.config = self.load_config()
+
     def save_config(self):
         try:
             with open(self.config_file, "w") as f:
@@ -177,3 +180,31 @@ class ConfigManager:
     def set_hide_labels(self, hidden):
         self.config.setdefault("appearance", {})["hide_labels"] = hidden
         self.save_config()
+
+    def get_context_menu_enabled(self):
+        return self.config.get("general", {}).get("context_menu_enabled", False)
+
+    def set_context_menu_enabled(self, enabled):
+        self.config.setdefault("general", {})["context_menu_enabled"] = enabled
+        self.save_config()
+
+    # --- Workspaces ---
+
+    def get_workspaces(self):
+        return self.config.get("workspaces", [])
+
+    def add_workspace(self, workspace):
+        self.config.setdefault("workspaces", []).append(workspace)
+        self.save_config()
+
+    def remove_workspace(self, workspace_id):
+        workspaces = self.get_workspaces()
+        self.config["workspaces"] = [w for w in workspaces if w["id"] != workspace_id]
+        self.save_config()
+
+    def get_workspace_by_id(self, workspace_id):
+        for w in self.get_workspaces():
+            if w["id"] == workspace_id:
+                return w
+        return None
+

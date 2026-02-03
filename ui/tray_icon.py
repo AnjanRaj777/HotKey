@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import QCoreApplication
+import os
 
 class TrayIcon(QSystemTrayIcon):
     def __init__(self, parent=None):
@@ -14,8 +15,14 @@ class TrayIcon(QSystemTrayIcon):
         # Using a standard icon from style if possible, or just empty for now until user adds one
         # Actually, PyQt6 might not show anything if icon is null. 
         # Let's try to grab a standard icon.
-        self_icon = self.parent().style().standardIcon(self.parent().style().StandardPixmap.SP_ComputerIcon)
-        self.setIcon(self_icon)
+        # Try to load custom icon
+        icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "app_icon.ico")
+        if os.path.exists(icon_path):
+            self.setIcon(QIcon(icon_path))
+        else:
+            # Fallback to system icon
+            self_icon = self.parent().style().standardIcon(self.parent().style().StandardPixmap.SP_ComputerIcon)
+            self.setIcon(self_icon)
 
         self.menu = QMenu(parent)
         

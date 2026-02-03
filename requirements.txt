@@ -1,3 +1,5 @@
 PyQt6
 keyboard
 pywin32
+pyvda
+PyQt6-WebEngine

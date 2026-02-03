@@ -22,7 +22,7 @@ class AddHotkeyDialog(QDialog):
         # 2. Action Type (Create first, setup later)
         layout.addWidget(QLabel("Action Type:"))
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["File", "Folder", "focus", "open_url"])
+        self.type_combo.addItems(["File", "Folder", "focus", "open_url", "Ai Voice Mode"])
         layout.addWidget(self.type_combo)
 
         # 3. Target (Create first)
@@ -36,6 +36,13 @@ class AddHotkeyDialog(QDialog):
         target_layout.addWidget(self.browse_btn)
         
         layout.addLayout(target_layout)
+
+        # Note Label (Dynamic)
+        self.note_label = QLabel("")
+        self.note_label.setStyleSheet("color: gray; font-style: italic;")
+        self.note_label.setWordWrap(True)
+        self.note_label.setVisible(False)
+        layout.addWidget(self.note_label)
 
         # 4. Block Key
         self.block_cb = QCheckBox("Block original key (Suppress)")
@@ -68,6 +75,7 @@ class AddHotkeyDialog(QDialog):
             self.on_type_changed("File")
 
     def on_type_changed(self, text):
+        self.note_label.setVisible(False)
         if text == "File":
             self.browse_btn.setEnabled(True)
             self.browse_btn.setVisible(True)
@@ -80,6 +88,12 @@ class AddHotkeyDialog(QDialog):
             self.browse_btn.setEnabled(False)
             self.browse_btn.setVisible(False)
             self.target_input.setPlaceholderText("Enter URL (e.g., https://google.com)")
+        elif text == "Ai Voice Mode":
+            self.browse_btn.setEnabled(False)
+            self.browse_btn.setVisible(False)
+            self.target_input.setPlaceholderText("AI Bot URL (e.g., https://chatgpt.com/)")
+            self.note_label.setText("Note: This feature will launch the selected AI bot in voice mode.")
+            self.note_label.setVisible(True)
         else: # focus
             self.browse_btn.setEnabled(False)
             self.browse_btn.setVisible(False)

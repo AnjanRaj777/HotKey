@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QTableWidget, QTableWidgetItem, QHeaderView, 
-                             QAbstractItemView, QInputDialog, QMessageBox, QCheckBox)
+                             QAbstractItemView, QInputDialog, QMessageBox, QCheckBox, QLineEdit)
 from PyQt6.QtCore import Qt, pyqtSignal
 
 class TextExpansionTab(QWidget):
@@ -16,6 +16,12 @@ class TextExpansionTab(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
+
+        # Search Bar
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search snippets...")
+        self.search_input.textChanged.connect(self.filter_snippets)
+        layout.addWidget(self.search_input)
 
         # Table
         self.table = QTableWidget()
@@ -61,6 +67,16 @@ class TextExpansionTab(QWidget):
             self.table.setCellWidget(i, 0, cb_widget)
             self.table.setItem(i, 1, QTableWidgetItem(s["trigger"]))
             self.table.setItem(i, 2, QTableWidgetItem(s["replacement"]))
+
+    def filter_snippets(self, text):
+        text = text.lower()
+        for i in range(self.table.rowCount()):
+            match = False
+            # Check Trigger (col 1) and Replacement (col 2)
+            if (text in self.table.item(i, 1).text().lower() or 
+                text in self.table.item(i, 2).text().lower()):
+                match = True
+            self.table.setRowHidden(i, not match)
 
     def emit_toggle(self, index, state):
         is_active = (state == 2)

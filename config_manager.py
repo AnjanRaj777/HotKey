@@ -54,25 +54,30 @@ class ConfigManager:
     def get_hotkeys(self):
         return self.config.get("hotkeys", [])
 
-    def add_hotkey(self, trigger_key, action_type, action_target, suppress=False):
+    def add_hotkey(self, trigger_key, action_type, action_target, suppress=False, long_press=False):
         """
         trigger_key: str, e.g., 'ctrl+alt+t'
         action_type: str, e.g., 'run', 'focus'
         action_target: str, e.g., 'notepad.exe', 'Spotify'
+        action_target: str, e.g., 'notepad.exe', 'Spotify'
         suppress: bool, whether to block the original key event
+        long_press: bool, whether to use long press trigger
         """
+        print(f"DEBUG: add_hotkey called with long_press={long_press}")
         new_hotkey = {
             "trigger": trigger_key,
             "type": action_type,
             "target": action_target,
             "active": True,
             "suppress": suppress,
+            "long_press": long_press,
             "created_at": time.time()
         }
         self.config.setdefault("hotkeys", []).append(new_hotkey)
         self.save_config()
 
     def update_hotkey(self, index, data):
+        print(f"DEBUG: update_hotkey called for index {index} with data: {data}")
         if 0 <= index < len(self.config["hotkeys"]):
             # Preserve created_at if not provided in data
             original = self.config["hotkeys"][index]
@@ -186,6 +191,14 @@ class ConfigManager:
 
     def set_context_menu_enabled(self, enabled):
         self.config.setdefault("general", {})["context_menu_enabled"] = enabled
+        self.config.setdefault("general", {})["context_menu_enabled"] = enabled
+        self.save_config()
+
+    def get_long_press_delay(self):
+        return self.config.get("general", {}).get("long_press_delay", 500) # Default 500ms
+
+    def set_long_press_delay(self, delay_ms):
+        self.config.setdefault("general", {})["long_press_delay"] = delay_ms
         self.save_config()
 
     # --- Workspaces ---

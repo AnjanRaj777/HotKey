@@ -1,5 +1,6 @@
 import keyboard
 import time
+import threading
 from utils import focus_window, run_command, open_url
 
 class HotkeyManager:
@@ -46,6 +47,12 @@ class HotkeyManager:
                 pass
         self.registered_hotkeys.clear()
         
+        # Mapping for long press handlers to keep them alive/clean up
+        self.long_press_handlers = getattr(self, "long_press_handlers", [])
+        for handler in self.long_press_handlers:
+            handler.stop()
+        self.long_press_handlers = []
+
         hotkeys = self.config_manager.get_hotkeys()
         for hk in hotkeys:
             if not hk.get("active", True):
@@ -102,7 +109,131 @@ class HotkeyManager:
         try:
             # Check if suppression is requested, default to False (pass-through)
             should_suppress = hk.get("suppress", False)
-            hk_ref = keyboard.add_hotkey(trigger, callback, suppress=should_suppress)
-            self.registered_hotkeys.append(hk_ref)
+            long_press = hk.get("long_press", False)
+
+            if long_press:
+                # Use custom LongPressHandler
+                delay = self.config_manager.get_long_press_delay() / 1000.0 # ms to s
+                handler = LongPressHandler(trigger, callback, delay, should_suppress)
+                handler.start()
+                self.long_press_handlers.append(handler)
+            else:
+                hk_ref = keyboard.add_hotkey(trigger, callback, suppress=should_suppress)
+                self.registered_hotkeys.append(hk_ref)
         except Exception as e:
             print(f"Failed to register hotkey '{trigger}': {e}")
+
+
+class LongPressHandler:
+    def __init__(self, trigger, callback, delay, suppress=True):
+        self.trigger = trigger
+        self.callback = callback
+        self.delay = delay
+        self.suppress = suppress
+        self.timer = None
+        self.is_execution_triggered = False
+        self.active = False
+        self.hotkey_ref = None
+        self.poll_interval = 0.05 # Check every 50ms
+        print(f"DEBUG: LongPressHandler init for '{trigger}' with delay {delay}s")
+
+    def start(self):
+        try:
+            # Use add_hotkey for robust combo detection
+            # trigger_on_release=False ensures it fires on KeyDown
+            self.hotkey_ref = keyboard.add_hotkey(
+                self.trigger, 
+                self.on_activate, 
+                suppress=self.suppress, 
+                trigger_on_release=False
+            )
+            self.active = True
+        except Exception as e:
+            print(f"Error starting LongPressHandler for {self.trigger}: {e}")
+
+    def stop(self):
+        self.active = False
+        if self.timer:
+            self.timer.cancel()
+        if self.hotkey_ref:
+            try:
+                keyboard.remove_hotkey(self.hotkey_ref)
+            except:
+                pass
+        self.hotkey_ref = None
+
+    def on_activate(self):
+        if not self.active: return
+        
+        # Avoid re-entry if already processing a press
+        if self.timer and self.timer.is_alive():
+            return
+
+        self.is_execution_triggered = False
+        
+        # Start polling for release
+        self.start_time = time.time()
+        self.check_release_loop()
+
+    def check_release_loop(self):
+        if not self.active: return
+        
+        # Check if keys are still pressed
+        is_pressed = keyboard.is_pressed(self.trigger)
+        elapsed = time.time() - self.start_time
+        # print(f"DEBUG: Checking {self.trigger}: pressed={is_pressed}, elapsed={elapsed:.2f}s")
+        
+        if is_pressed:
+            if elapsed >= self.delay:
+                # Long Press Condition Met
+                print(f"DEBUG: Long Press Met! {elapsed:.2f}s >= {self.delay}s")
+                if not self.is_execution_triggered:
+                    self.execute()
+                # We stop polling but don't replay.
+                # User is still holding keys, they might release later.
+                # We can wait for release to reset? 
+                # Or just exit loop and let next press trigger?
+                # If we exit, and user holds for 10s, next "activate" trigger won't fire until release and re-press.
+                # So we just return.
+                return
+            else:
+                # Still holding, but not enough time. Schedule next check.
+                self.timer = threading.Timer(self.poll_interval, self.check_release_loop)
+                self.timer.start()
+        else:
+            # Released!
+            elapsed = time.time() - self.start_time
+            if elapsed < self.delay and not self.is_execution_triggered:
+                # Short Press -> Replay
+                if self.suppress:
+                    self.replay_hotkey()
+
+    def execute(self):
+        self.is_execution_triggered = True
+        if self.callback:
+            self.callback()
+
+    def replay_hotkey(self):
+        # Unhook, Send, Rehook
+        self.active = False # prevent self-trigger
+        try:
+            if self.hotkey_ref:
+                keyboard.remove_hotkey(self.hotkey_ref)
+            
+            # Send the combination
+            keyboard.send(self.trigger)
+            
+            # Brief wait to ensure OS processes input before we re-hook
+            time.sleep(0.05)
+            
+            # Re-hook
+            self.hotkey_ref = keyboard.add_hotkey(
+                self.trigger, 
+                self.on_activate, 
+                suppress=self.suppress, 
+                trigger_on_release=False
+            )
+            self.active = True
+        except Exception as e:
+            print(f"Error replaying hotkey {self.trigger}: {e}")
+            self.active = True # Restore safety

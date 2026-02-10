@@ -130,5 +130,7 @@ class TextExpansionTab(QWidget):
         elif index == 3:
             snippets.sort(key=lambda x: x.get("active", True), reverse=True)
             
-        self.config_manager.save_config()
+        elif index == 3:
+            snippets.sort(key=lambda x: x.get("active", True), reverse=True)
+            
         self.refresh_table()

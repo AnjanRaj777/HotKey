@@ -20,10 +20,11 @@ from context_menu_manager import ContextMenuManager
 class MainWindow(QMainWindow):
     # Signals to communicate with the controller/main logic
     start_listener_signal = pyqtSignal(bool) # True = start, False = stop
-    add_hotkey_signal = pyqtSignal(str, str, str, bool) # trigger, type, target, suppress
+    add_hotkey_signal = pyqtSignal(str, str, str, bool, bool) # trigger, type, target, suppress, long_press
     remove_hotkey_signal = pyqtSignal(int)
     toggle_hotkey_signal = pyqtSignal(int, bool)
     update_hotkey_signal = pyqtSignal(int, dict)
+    long_press_delay_changed_signal = pyqtSignal(int)
     close_to_tray_signal = pyqtSignal()
     import_config_signal = pyqtSignal()
 
@@ -144,6 +145,23 @@ class MainWindow(QMainWindow):
         self.context_menu_cb.setChecked(self.config_manager.get_context_menu_enabled())
         self.context_menu_cb.toggled.connect(self.on_context_menu_toggled)
         layout.addWidget(self.context_menu_cb)
+
+        self.context_menu_cb.toggled.connect(self.on_context_menu_toggled)
+        layout.addWidget(self.context_menu_cb)
+
+        # Long Press Delay
+        lp_layout = QHBoxLayout()
+        lp_layout.addWidget(QLabel("Long Press Delay (ms):"))
+        self.lp_slider = QSlider(Qt.Orientation.Horizontal)
+        self.lp_slider.setRange(200, 2000)
+        self.lp_slider.setSingleStep(50)
+        current_lp = self.config_manager.get_long_press_delay()
+        self.lp_slider.setValue(current_lp)
+        self.lp_slider.valueChanged.connect(self.on_lp_delay_changed)
+        lp_layout.addWidget(self.lp_slider)
+        self.lp_label = QLabel(f"{current_lp} ms")
+        lp_layout.addWidget(self.lp_label)
+        layout.addLayout(lp_layout)
 
         layout.addSpacing(20)
 
@@ -364,7 +382,8 @@ class MainWindow(QMainWindow):
                 data["trigger"], 
                 data["type"], 
                 data["target"], 
-                data["suppress"]
+                data["suppress"],
+                data.get("long_press", False)
             )
             self.refresh_table()
 
@@ -437,7 +456,9 @@ class MainWindow(QMainWindow):
             elif index == 3: # Active Status
                 hotkeys.sort(key=lambda x: x.get("active", True), reverse=True)
             
-            self.config_manager.save_config()
+            elif index == 3: # Active Status
+                hotkeys.sort(key=lambda x: x.get("active", True), reverse=True)
+            
             self.refresh_table()
             
         elif current_widget == self.text_expansion_tab:
@@ -610,6 +631,11 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.critical(self, "Error", msg)
                 self.context_menu_cb.setChecked(True) # Revert
+
+    def on_lp_delay_changed(self, value):
+        self.config_manager.set_long_press_delay(value)
+        self.lp_label.setText(f"{value} ms")
+        self.refresh_table() # Might need to refresh if we display delay somewhere, but mostly for backend logic
 
     def on_switch_workspace(self, workspace_id):
         if self.workspace_manager:

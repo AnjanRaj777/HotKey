@@ -49,7 +49,15 @@ class AddHotkeyDialog(QDialog):
         self.block_cb.setToolTip("If checked, the key combination will NOT be passed to other applications.")
         layout.addWidget(self.block_cb)
 
-        # 5. Buttons
+        # 5. Long Press Trigger
+        self.long_press_cb = QCheckBox("Long Press Trigger")
+        self.long_press_cb.setToolTip("Trigger action only if key is held down for the configured delay.")
+        self.long_press_cb = QCheckBox("Long Press Trigger")
+        self.long_press_cb.setToolTip("Trigger action only if key is held down for the configured delay.")
+        # self.long_press_cb.toggled.connect(self.on_long_press_toggled) # Removed enforcement
+        layout.addWidget(self.long_press_cb)
+
+        # 6. Buttons
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(self.validate_and_accept)
         button_box.rejected.connect(self.reject)
@@ -66,6 +74,7 @@ class AddHotkeyDialog(QDialog):
             self.trigger_input.setText(self.hotkey_data.get("trigger", ""))
             self.target_input.setText(self.hotkey_data.get("target", ""))
             self.block_cb.setChecked(self.hotkey_data.get("suppress", False))
+            self.long_press_cb.setChecked(self.hotkey_data.get("long_press", False))
             
             # Set Type last to trigger on_type_changed correctly with data
             current_type = self.hotkey_data.get("type", "File")
@@ -99,6 +108,15 @@ class AddHotkeyDialog(QDialog):
             self.browse_btn.setVisible(False)
             self.target_input.setPlaceholderText("Window Title to match")
 
+            self.target_input.setPlaceholderText("Window Title to match")
+
+    # def on_long_press_toggled(self, checked):
+    #     if checked:
+    #         self.block_cb.setChecked(True)
+    #         self.block_cb.setEnabled(False)
+    #     else:
+    #         self.block_cb.setEnabled(True)
+
     def browse_file(self):
         action_type = self.type_combo.currentText()
         if action_type == "Folder":
@@ -124,5 +142,6 @@ class AddHotkeyDialog(QDialog):
             "trigger": self.trigger_input.text().strip(),
             "type": self.type_combo.currentText(),
             "target": self.target_input.text().strip(),
-            "suppress": self.block_cb.isChecked()
+            "suppress": self.block_cb.isChecked(),
+            "long_press": self.long_press_cb.isChecked()
         }

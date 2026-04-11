@@ -1,9 +1,14 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFrame
-from PyQt6.QtCore import Qt, QUrl, QSize
+from PyQt6.QtCore import Qt, QUrl, QSize, QTimer
 from PyQt6.QtGui import QIcon, QAction
+from PyQt6.QtWebEngineCore import QWebEngineProfile, QWebEnginePage
 from PyQt6.QtWebEngineWidgets import QWebEngineView
+import os
+from ui.blur_effect import apply_acrylic_blur, GRADIENT_DEEP_BLUE
 
 class AiVoiceWidget(QWidget):
+    _shared_profile = None
+
     def __init__(self, url="https://chatgpt.com/"):
         super().__init__()
         self.url = url
@@ -11,17 +16,35 @@ class AiVoiceWidget(QWidget):
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
-        self.resize(320, 500) # Reduced compact size
+        self.expanded_height = 500
+        self.collapsed_height = 80 # Header height approx
+        self.is_expanded = False
+
+        self.resize(320, self.collapsed_height) # Start collapsed
         self.init_ui()
         self.load_url()
 
-        # Center on screen
-        self.center_on_screen()
+        # Position at bottom-center
+        self.position_on_screen()
+        
+        # Initialize drag position
+        self.drag_pos = None
 
-    def center_on_screen(self):
-         screen = self.screen().geometry()
-         size = self.geometry()
-         self.move((screen.width() - size.width()) // 2, (screen.height() - size.height()) // 2)
+    def showEvent(self, event):
+        super().showEvent(event)
+        try:
+            apply_acrylic_blur(int(self.winId()), gradient_color=GRADIENT_DEEP_BLUE)
+        except Exception:
+            pass
+
+    def position_on_screen(self):
+         screen = self.screen().availableGeometry()
+         # Center horizontally
+         x = screen.x() + (screen.width() - self.width()) // 2
+         # Bottom vertically with margin
+         margin = 20
+         y = screen.y() + screen.height() - self.height() - margin
+         self.move(x, y)
 
     def get_bot_name(self):
         if "chatgpt" in self.url.lower():
@@ -45,8 +68,8 @@ class AiVoiceWidget(QWidget):
         self.container = QFrame()
         self.container.setStyleSheet("""
             QFrame {
-                background-color: rgba(30, 30, 30, 0.95);
-                border: 1px solid rgba(255, 255, 255, 0.2);
+                background-color: rgba(12, 14, 26, 0.28);
+                border: none;
                 border-radius: 20px;
             }
         """)
@@ -58,7 +81,7 @@ class AiVoiceWidget(QWidget):
         self.header = QFrame()
         self.header.setStyleSheet("background: transparent; border: none;")
         self.header_layout = QHBoxLayout(self.header)
-        self.header_layout.setContentsMargins(5, 5, 5, 10)
+        self.header_layout.setContentsMargins(5, 5, 5, 5)
 
         # Bot Icon
         self.icon_label = QLabel()
@@ -97,8 +120,8 @@ class AiVoiceWidget(QWidget):
         self.header_layout.addWidget(self.voice_btn)
 
         # Chat Button
-        self.chat_btn = QPushButton("Chat")
-        self.chat_btn.setFixedSize(60, 40)
+        self.chat_btn = QPushButton("Chat ▼")
+        self.chat_btn.setFixedSize(80, 40)
         self.chat_btn.setStyleSheet("""
             QPushButton {
                 background-color: #888;
@@ -110,20 +133,20 @@ class AiVoiceWidget(QWidget):
                 background-color: #aaa;
             }
         """)
-        self.chat_btn.clicked.connect(self.toggle_extensions)
+        self.chat_btn.clicked.connect(self.toggle_expanded)
         self.header_layout.addWidget(self.chat_btn)
 
-        # Close Button (Small X)
-        self.close_btn = QPushButton("×")
+        # Close Button (was Expand/Collapse)
+        self.close_btn = QPushButton("✕") 
         self.close_btn.setFixedSize(30, 30)
         self.close_btn.setStyleSheet("""
             QPushButton {
                  background-color: transparent;
                  color: white;
-                 font-size: 18px;
+                 font-size: 16px;
             }
             QPushButton:hover {
-                 background-color: rgba(255,0,0,0.5);
+                 background-color: rgba(255, 59, 48, 0.8); /* Red hover */
                  border-radius: 15px;
             }
         """)
@@ -134,11 +157,37 @@ class AiVoiceWidget(QWidget):
 
         # Web View
         self.webview = QWebEngineView()
+        
+        # Configure Persistent Profile
+        # Store data in "web_data" folder next to main script or in user data dir
+        if AiVoiceWidget._shared_profile is None:
+            storage_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "web_data")
+            if not os.path.exists(storage_path):
+                os.makedirs(storage_path)
+
+            profile = QWebEngineProfile("hotkey_ai_profile")
+            profile.setPersistentStoragePath(storage_path)
+            profile.setCachePath(storage_path)
+            profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies)
+            AiVoiceWidget._shared_profile = profile
+
+        page = QWebEnginePage(AiVoiceWidget._shared_profile, self.webview)
+        self.webview.setPage(page)
+
         self.webview.setStyleSheet("background: white; border-radius: 10px;")
         # Allow microphone permission automatically
-        self.webview.page().featurePermissionRequested.connect(self.on_feature_permission)
+        page.featurePermissionRequested.connect(self.on_feature_permission)
         
         self.container_layout.addWidget(self.webview)
+        self.webview.hide() # Initially hidden
+        
+        self.webview.loadFinished.connect(self.on_load_finished)
+
+    def on_load_finished(self, ok):
+        if ok:
+            print("Page loaded. Scheduling auto-voice start...")
+            # Wait 5 seconds for SPA rendering/hydration
+            QTimer.singleShot(5000, lambda: self.toggle_voice_mode(auto=True))
 
     def load_url(self):
         self.webview.setUrl(QUrl(self.url))
@@ -154,26 +203,94 @@ class AiVoiceWidget(QWidget):
                 url, feature, self.webview.page().PermissionPolicy.PermissionGrantedByUser
             )
 
-    def toggle_voice_mode(self):
+    def toggle_expanded(self):
+        screen = self.screen().availableGeometry()
+        
+        current_h = self.height()
+        current_y = self.y()
+        current_bottom = current_y + current_h
+         
+        if self.is_expanded:
+            # COLLAPSING from 500 -> 80
+            # Check if we are touching bottom edge (within threshold)
+            # If so, we want to anchor to the bottom (header moves down)
+            is_bottom_anchored = (current_bottom >= screen.bottom() - 10)
+            
+            self.webview.hide()
+            self.resize(self.width(), self.collapsed_height)
+            self.chat_btn.setText("Chat ▼")
+            self.is_expanded = False
+
+            if is_bottom_anchored:
+                 # Move down to keep bottom fixed
+                 # New Height is collapsed_height
+                 new_y = current_bottom - self.collapsed_height
+                 self.move(self.x(), new_y)
+            # Else: Top stays fixed (default behavior of resize)
+            
+        else:
+            # EXPANDING from 80 -> 500
+            # Calculate needed shift to fit screen
+            target_bottom = current_y + self.expanded_height
+            overflow = target_bottom - screen.bottom()
+            
+            self.resize(self.width(), self.expanded_height)
+            self.webview.show()
+            self.chat_btn.setText("Chat ▲")
+            self.is_expanded = True
+            
+            if overflow > 0:
+                 # Shift up just enough to fit
+                 new_y = current_y - overflow
+                 # Clamp to top
+                 if new_y < screen.top():
+                     new_y = screen.top()
+                 self.move(self.x(), new_y)
+            # Else: Top stays fixed (default)
+
+
+    def toggle_voice_mode(self, auto=False):
         # Attempt to click the microphone or voice icon on the page via JS
         # This is a heuristic. For ChatGPT, the voice mode is often a headphone icon.
         # This script logs for now, as selecting the exact element is site-specific and brittle.
         # Ideally, we inject a script to find aria-labels like "Start voice conversation"
         js_code = """
         (function() {
-            // Heuristic for ChatGPT and others
+            console.log("Attempting to find Voice Mode button...");
+            
+            // Strategy 1: Known data-testids
+            const testIds = ['voice-mode-button', 'voice-input-button'];
+            for (let id of testIds) {
+                const btn = document.querySelector(`[data-testid="${id}"]`);
+                if (btn) {
+                    console.log(`Found by data-testid: ${id}`);
+                    btn.click();
+                    return;
+                }
+            }
+
+            // Strategy 2: Button with aria-label "Use Voice" or similar
             const buttons = document.querySelectorAll('button');
             for (let btn of buttons) {
-                 const label = btn.getAttribute('aria-label') || btn.innerText;
-                 if (label && (label.toLowerCase().includes('voice') || label.toLowerCase().includes('listen') || label.toLowerCase().includes('speak'))) {
-                     console.log("Clicking potential voice button:", label);
+                 const label = (btn.getAttribute('aria-label') || btn.innerText || "").toLowerCase();
+                 if (label.includes('use voice') || label.includes('start voice') || label.includes('listen')) {
+                     console.log("Found by label:", label);
                      btn.click();
                      return;
                  }
             }
-            alert("Could not auto-detect voice button. Please click it manually.");
+            
+            if (!auto_trigger) {
+               console.log("Voice button not found. Dumping buttons for debug:");
+               buttons.forEach(b => console.log(b.getAttribute('aria-label'), b.className));
+            } else {
+               console.log("Auto-start voice: Button not found.");
+            }
         })();
         """
+        # Inject 'true' or 'false' for auto_trigger
+        js_code = js_code.replace("auto_trigger", "true" if auto else "false")
+        
         self.webview.page().runJavaScript(js_code)
         
         # Visual feedback
@@ -185,9 +302,7 @@ class AiVoiceWidget(QWidget):
              self.voice_btn.setStyleSheet("background-color: #888; color: black; border-radius: 10px; font-size: 20px; font-weight: bold;")
 
 
-    def toggle_extensions(self):
-        # Maybe resize window or similar?
-        pass
+
 
     # Drag window support
     def mousePressEvent(self, event):

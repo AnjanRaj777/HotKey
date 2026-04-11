@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "D:\anjan peoject\keyboard\main.py", line 166, in <module>
+    main()
+    ~~~~^^
+  File "D:\anjan peoject\keyboard\main.py", line 138, in main
+    te_tab = main_window.text_expansion_tab
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'MainWindow' object has no attribute 'text_expansion_tab'

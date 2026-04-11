@@ -9,6 +9,7 @@ class WindowsShortcutsTab(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 12, 0, 12)
         
         # Search / Filter
         self.search_input = QLineEdit()

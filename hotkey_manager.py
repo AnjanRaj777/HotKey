@@ -82,6 +82,8 @@ class HotkeyManager:
                     self.registered_hotkeys.append(hk_ref)
                 except Exception as e:
                     print(f"Failed to register workspace hotkey '{trigger}': {e}")
+        
+        print(f"DEBUG: Total registered hotkeys: {len(self.registered_hotkeys)}")
 
     def _register_hotkey(self, hk):
         trigger = hk["trigger"]
@@ -90,26 +92,39 @@ class HotkeyManager:
         
         # Define the callback closure
         def callback():
+            print(f"DEBUG: Hotkey callback triggered for '{trigger}'")
             print(f"Triggered: {trigger} -> {action_type}: {target}")
-            if action_type in ("run", "File", "Folder"):
-                run_command(target)
-            elif action_type == "focus":
-                focus_window(target)
-            elif action_type == "open_url":
-                open_url(target)
-            elif action_type == "Ai Voice Mode":
-                if self.ai_voice_callback:
-                    # Execute on main thread if possible? 
-                    # Note: callback calls from 'keyboard' are in a separate thread.
-                    # We rely on the callback implementation (instantiating Qt widgets) to handle thread safety via signals if needed.
-                    # Or we just call it and hope PyObject wrapper handles it (often signals are better).
-                    # Ideally, self.ai_voice_callback should emit a signal.
-                    self.ai_voice_callback(target)
+            
+            try:
+                if action_type in ("run", "File", "Folder"):
+                    print(f"DEBUG: Executing run_command for {target}")
+                    run_command(target)
+                elif action_type == "focus":
+                    print(f"DEBUG: Focusing window {target}")
+                    focus_window(target)
+                elif action_type == "open_url":
+                    print(f"DEBUG: Opening URL {target}")
+                    open_url(target)
+                elif action_type == "Ai Voice Mode":
+                    print(f"DEBUG: Activating AI Voice Mode for {target}")
+                    if self.ai_voice_callback:
+                        # Execute callback. Note: This runs on the keyboard hook thread.
+                        # The callback (Qt Signal.emit) is thread-safe and will queue the slot 
+                        # execution on the main thread if connected with Auto/Queued connection.
+                        self.ai_voice_callback(target)
+                    else:
+                        print("ERROR: AI Voice callback not set!")
+            except Exception as e:
+                print(f"ERROR in hotkey callback for {trigger}: {e}")
+                import traceback
+                traceback.print_exc()
 
         try:
             # Check if suppression is requested, default to False (pass-through)
             should_suppress = hk.get("suppress", False)
             long_press = hk.get("long_press", False)
+            
+            print(f"DEBUG: Registering '{trigger}' (Action: {action_type}, LongPress: {long_press})")
 
             if long_press:
                 # Use custom LongPressHandler
@@ -139,8 +154,9 @@ class LongPressHandler:
 
     def start(self):
         try:
-            # Use add_hotkey for robust combo detection
-            # trigger_on_release=False ensures it fires on KeyDown
+            # For long presses, especially multi-key combos, add_hotkey with trigger_on_release=False
+            # can be flaky or raise exceptions depending on the library version
+            # Let's use it but catch specific errors, or just fall back to standard press detection
             self.hotkey_ref = keyboard.add_hotkey(
                 self.trigger, 
                 self.on_activate, 
@@ -148,8 +164,31 @@ class LongPressHandler:
                 trigger_on_release=False
             )
             self.active = True
+        except ValueError as ve:
+            print(f"ValueError starting LongPressHandler for {self.trigger} - likely a combination issue: {ve}")
+            # Fallback for complex triggers that add_hotkey rejects
+            # E.g., ctrl+j+k might not parse well for add_hotkey but hook catches it.
+            # In a real app we might need a custom hook parser, but here we can try a simpler bind
+            try:
+                self.hotkey_ref = keyboard.on_press_key(
+                    self.trigger.split("+")[-1], # hook to the last key
+                    self.on_activate_fallback,
+                    suppress=self.suppress
+                )
+                self.active = True
+            except Exception as e2:
+                print(f"Fallback also failed for {self.trigger}: {e2}")
         except Exception as e:
             print(f"Error starting LongPressHandler for {self.trigger}: {e}")
+
+    def on_activate_fallback(self, event):
+        # We only hooked the last key. Check if others are pressed.
+        parts = self.trigger.lower().split('+')
+        modifiers = parts[:-1]
+        for mod in modifiers:
+            if not keyboard.is_pressed(mod):
+                return # Not all keys pressed
+        self.on_activate()
 
     def stop(self):
         self.active = False

@@ -16,6 +16,7 @@ class TextExpansionTab(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 12, 0, 12)
 
         # Search Bar
         self.search_input = QLineEdit()

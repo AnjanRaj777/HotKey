@@ -6,6 +6,15 @@
             "target": "cmd.exe",
             "active": true,
             "suppress": false
+        },
+        {
+            "trigger": "ctrl+t",
+            "type": "run",
+            "target": "notepad",
+            "active": true,
+            "suppress": false,
+            "long_press": false,
+            "created_at": 1771229836.1583793
         }
     ],
     "snippets": [

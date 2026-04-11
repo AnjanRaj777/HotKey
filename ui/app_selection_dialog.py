@@ -1,6 +1,6 @@
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, 
-                             QListWidget, QListWidgetItem, QPushButton, QLabel,
-                             QAbstractItemView, QFileIconProvider)
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+                             QLineEdit, QPushButton, QListWidget, QListWidgetItem,
+                             QMessageBox, QProgressDialog, QAbstractItemView, QFrame, QFileIconProvider)
 from PyQt6.QtCore import Qt, QSize, QThread, pyqtSignal, QFileInfo
 from PyQt6.QtGui import QIcon
 import os
@@ -33,12 +33,40 @@ class AppSelectionDialog(QDialog):
         self.resize(500, 600)
         self.selected_app_path = None
         self.all_apps = []
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         self.init_ui()
         self.load_apps()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        try:
+            from ui.blur_effect import apply_acrylic_blur, GRADIENT_DEEP_BLUE
+            apply_acrylic_blur(int(self.winId()), gradient_color=GRADIENT_DEEP_BLUE)
+        except Exception:
+            pass
+
     def init_ui(self):
-        layout = QVBoxLayout(self)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        
+        container = QFrame()
+        container.setObjectName("dialogContainer")
+        container.setStyleSheet("""
+            QFrame#dialogContainer {
+                background-color: rgba(12, 14, 26, 0.28);
+                border: none;
+                border-radius: 20px;
+            }
+            QLabel { color: #f0f0f0; }
+        """)
+        
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.addWidget(container)
 
         # Search Bar
         self.search_input = QLineEdit()
@@ -123,3 +151,19 @@ class AppSelectionDialog(QDialog):
 
     def get_selected_app(self):
         return self.selected_app_path
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if hasattr(self, '_drag_pos') and self._drag_pos is not None:
+            delta = event.globalPosition().toPoint() - self._drag_pos
+            self.move(self.pos() + delta)
+            self._drag_pos = event.globalPosition().toPoint()
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        event.accept()

@@ -54,7 +54,7 @@ class ConfigManager:
     def get_hotkeys(self):
         return self.config.get("hotkeys", [])
 
-    def add_hotkey(self, trigger_key, action_type, action_target, suppress=False, long_press=False):
+    def add_hotkey(self, trigger_key, action_type, action_target, suppress=False, long_press=False, name=""):
         """
         trigger_key: str, e.g., 'ctrl+alt+t'
         action_type: str, e.g., 'run', 'focus'
@@ -68,6 +68,7 @@ class ConfigManager:
             "trigger": trigger_key,
             "type": action_type,
             "target": action_target,
+            "name": name,
             "active": True,
             "suppress": suppress,
             "long_press": long_press,
@@ -149,7 +150,7 @@ class ConfigManager:
         self.save_config()
 
     def get_opacity(self):
-        return self.config.get("opacity", 1.0) # Default 100%
+        return self.config.get("opacity", 0.97) # Default 97%
 
     def set_opacity(self, opacity):
         # opacity is a float between 0.1 and 1.0
@@ -163,7 +164,12 @@ class ConfigManager:
         self.config.setdefault("appearance", {})["always_on_top"] = enabled
         self.save_config()
 
+    def get_solid_mode(self):
+        return self.config.get("appearance", {}).get("solid_mode", False)
 
+    def set_solid_mode(self, enabled):
+        self.config.setdefault("appearance", {})["solid_mode"] = enabled
+        self.save_config()
 
     def get_accent_color(self):
         return self.config.get("appearance", {}).get("accent_color", "#007acc")

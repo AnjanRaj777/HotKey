@@ -1,10 +1,115 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QTableWidget, QTableWidgetItem, 
                              QHeaderView, QLabel, QCheckBox, QAbstractItemView,
-                             QHeaderView, QLabel, QCheckBox, QAbstractItemView, QLineEdit,
-                             QInputDialog, QComboBox, QMessageBox, QTabWidget, QFileDialog, QSlider, QColorDialog, QStyle, QApplication)
-from PyQt6.QtGui import QAction, QIcon, QFont, QColor
-from PyQt6.QtCore import Qt, pyqtSignal
+                             QLineEdit, QInputDialog, QComboBox, QMessageBox, 
+                             QTabWidget, QFileDialog, QSlider, QColorDialog, QStyle,
+                             QApplication, QFrame, QMenu)
+from PyQt6.QtGui import QAction, QIcon, QFont, QColor, QPainter, QPen
+from PyQt6.QtCore import Qt, pyqtSignal, QRect
+import ctypes
+
+
+class _WinControlBtn(QPushButton):
+    """Custom window control button that paints its icon via QPainter.
+    symbol: 'min' | 'max' | 'close'
+    """
+    def __init__(self, symbol: str, is_close=False, parent=None):
+        super().__init__(parent)
+        self._symbol = symbol
+        self._is_close = is_close
+        self._hovered = False
+        self._pressed = False
+        self.setFixedSize(38, 26)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFlat(True)
+        self.setMouseTracking(True)
+
+        if is_close:
+            self.setStyleSheet("""
+                QPushButton { background: transparent; border: none; border-radius: 6px; }
+            """)
+        else:
+            self.setStyleSheet("""
+                QPushButton { background: transparent; border: none; border-radius: 6px; }
+            """)
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self._pressed = False
+        self.update()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        self._pressed = True
+        self.update()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._pressed = False
+        self.update()
+        super().mouseReleaseEvent(event)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = self.rect()
+
+        # --- Background ---
+        if self._is_close:
+            if self._pressed:
+                bg = QColor("#922b21")
+            elif self._hovered:
+                bg = QColor("#e74c3c")
+            else:
+                bg = QColor(0, 0, 0, 0)
+        else:
+            if self._pressed:
+                bg = QColor(255, 255, 255, 18)
+            elif self._hovered:
+                bg = QColor(255, 255, 255, 30)
+            else:
+                bg = QColor(0, 0, 0, 0)
+
+        if bg.alpha() > 0:
+            p.setBrush(bg)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawRoundedRect(r, 6, 6)
+
+        # --- Icon color ---
+        if self._hovered or self._pressed:
+            icon_color = QColor(255, 255, 255, 230)
+        else:
+            icon_color = QColor(200, 200, 200, 130)
+
+        pen = QPen(icon_color)
+        pen.setWidthF(1.6)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+
+        cx = r.width() / 2
+        cy = r.height() / 2
+        s = 5  # half-icon span
+
+        if self._symbol == 'min':
+            # Horizontal line
+            p.drawLine(int(cx - s), int(cy + 1), int(cx + s), int(cy + 1))
+
+        elif self._symbol == 'max':
+            # Square outline
+            p.drawRect(int(cx - s), int(cy - s), int(s * 2), int(s * 2))
+
+        elif self._symbol == 'close':
+            # X
+            p.drawLine(int(cx - s), int(cy - s), int(cx + s), int(cy + s))
+            p.drawLine(int(cx + s), int(cy - s), int(cx - s), int(cy + s))
+
+        p.end()
+
 import os
 from urllib.parse import urlparse
 from ui.add_hotkey_dialog import AddHotkeyDialog
@@ -12,7 +117,7 @@ from startup_manager import StartupManager
 from ui.text_expansion_tab import TextExpansionTab
 from ui.workspaces_tab import WorkspacesTab
 from ui.windows_shortcuts_tab import WindowsShortcutsTab
-from ui.blur_effect import apply_blur
+from ui.blur_effect import apply_blur, apply_acrylic_blur, GRADIENT_DEEP_BLUE, remove_blur
 from ui.themes import THEMES
 from PyQt6.QtCore import QFileSystemWatcher
 from context_menu_manager import ContextMenuManager
@@ -20,7 +125,7 @@ from context_menu_manager import ContextMenuManager
 class MainWindow(QMainWindow):
     # Signals to communicate with the controller/main logic
     start_listener_signal = pyqtSignal(bool) # True = start, False = stop
-    add_hotkey_signal = pyqtSignal(str, str, str, bool, bool) # trigger, type, target, suppress, long_press
+    add_hotkey_signal = pyqtSignal(str, str, str, bool, bool, str) # trigger, type, target, suppress, long_press, name
     remove_hotkey_signal = pyqtSignal(int)
     toggle_hotkey_signal = pyqtSignal(int, bool)
     update_hotkey_signal = pyqtSignal(int, dict)
@@ -33,24 +138,85 @@ class MainWindow(QMainWindow):
         self.config_manager = config_manager
         self.workspace_manager = workspace_manager
         self.setWindowTitle("Global Hotkey Manager")
-        self.resize(600, 400)
+        self.resize(600, 555)
         self.startup_manager = StartupManager()
         self.context_menu_manager = ContextMenuManager()
+        
+        # Enable frameless window and translucent background for glassmorphism effect
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        
+        # For dragging the frameless window
+        self._drag_pos = None
         
         # File Watcher for config.json (to detect changes from CLI adds)
         self.watcher = QFileSystemWatcher(self)
         self.watcher.addPath(self.config_manager.config_file)
         self.watcher.fileChanged.connect(self.on_config_file_changed)
 
-        self.apply_appearance_settings()
         self.init_ui()
+        self.apply_appearance_settings()
 
     def init_ui(self):
+        self.container = QFrame()
+        self.container.setObjectName("AppContainer")
+        # Ensure we have a semi-transparent border matching the reference glass card
+        self.container.setStyleSheet("""
+            QFrame#AppContainer {
+                background-color: rgba(12, 14, 26, 0.28);
+                border: none;
+                border-radius: 8px;
+            }
+        """)
+        self.setCentralWidget(self.container)
+        
+        main_layout = QVBoxLayout(self.container)
+        main_layout.setContentsMargins(12, 0, 8, 0) # Use the widget for padding
+        
+        # Custom Title Bar for Frameless Window
+        title_bar = QWidget()
+        title_bar.setFixedHeight(34)
+        title_bar.setStyleSheet("border-bottom: 1px solid rgba(255, 255, 255, 0.08); background: transparent;")
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(12, 0, 8, 0)
+        
+        # App Icon / Title
+        title_icon = QLabel()
+        _logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logo.PNG")
+        if os.path.exists(_logo_path):
+            title_icon.setPixmap(QIcon(_logo_path).pixmap(20, 20))
+        else:
+            title_icon.setPixmap(QApplication.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon).pixmap(20, 20))
+        title_label = QLabel("HotKey")
+        title_label.setStyleSheet("font-weight: 600; color: #ffffff; font-size: 13px; border: none; background: transparent;")
+        
+        # Windows Style Min/Max/Close Buttons  (painter-drawn, no font glitches)
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(2)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
 
+        min_btn = _WinControlBtn('min')
+        min_btn.setToolTip("Minimize")
+        min_btn.clicked.connect(self.showMinimized)
 
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
+        max_btn = _WinControlBtn('max')
+        max_btn.setToolTip("Maximize / Restore")
+        max_btn.clicked.connect(lambda: self.showNormal() if self.isMaximized() else self.showMaximized())
+
+        close_btn = _WinControlBtn('close', is_close=True)
+        close_btn.setToolTip("Close")
+        close_btn.clicked.connect(self.close)
+
+        btn_layout.addWidget(min_btn)
+        btn_layout.addWidget(max_btn)
+        btn_layout.addWidget(close_btn)
+        
+        title_layout.addWidget(title_icon)
+        title_layout.addWidget(title_label)
+        title_layout.addStretch()
+        title_layout.addLayout(btn_layout)
+        
+        main_layout.addWidget(title_bar)
 
         # Header (Common for both tabs)
         header_layout = QHBoxLayout()
@@ -63,46 +229,51 @@ class MainWindow(QMainWindow):
         self.toggle_listener_btn.setCheckable(True)
         self.toggle_listener_btn.clicked.connect(self.on_toggle_listener)
         
+        # --- Minimal sort pill button in global header ---
+        self._sort_options = [
+            ("A → Z",  0),
+            ("Z → A",  1),
+            ("Newest", 2),
+            ("Active", 3),
+        ]
+        self._current_sort_index = 0
+
+        self.sort_btn = QPushButton("\u21c5 A → Z")
+        self.sort_btn.setFixedHeight(24)
+        self.sort_btn.setFixedWidth(85)
+        self.sort_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sort_btn.setStyleSheet("""
+            QPushButton {
+                background: rgba(255, 255, 255, 0.07);
+                color: rgba(255, 255, 255, 0.55);
+                border: 1px solid rgba(255, 255, 255, 0.10);
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 500;
+                padding: 0px 8px;
+            }
+            QPushButton:hover {
+                background: rgba(255, 255, 255, 0.13);
+                color: rgba(255, 255, 255, 0.85);
+                border: 1px solid rgba(255, 255, 255, 0.20);
+            }
+            QPushButton:pressed {
+                background: rgba(255, 255, 255, 0.05);
+            }
+        """)
+        self.sort_btn.clicked.connect(self._show_sort_menu)
+
         header_layout.addWidget(self.status_label)
         header_layout.addStretch()
+        header_layout.addWidget(self.sort_btn)
+        header_layout.addSpacing(10)
         header_layout.addWidget(self.toggle_listener_btn)
-        
-
 
         main_layout.addLayout(header_layout)
 
         # Tabs
         self.tabs = QTabWidget()
-        
-        # Sort Combo (in Tab Corner)
-        self.sort_combo = QComboBox()
-        self.sort_combo.addItems(["Trigger (A-Z)", "Trigger (Z-A)", "Date Added (Newest)", "Active Status"])
-        self.sort_combo.setFixedWidth(140)
-        self.sort_combo.currentIndexChanged.connect(self.apply_sorting)
-        
-        # Styling for the Sort Combo to fit the "White Box" area
-        self.sort_combo.setStyleSheet("""
-            QComboBox {
-                background-color: #2b2b2b;
-                color: #e0e0e0;
-                border: 1px solid #444;
-                border-radius: 4px;
-                padding: 2px 5px;
-                font-size: 11px;
-            }
-            QComboBox::drop-down {
-                border-left: 1px solid #444;
-                width: 20px;
-            }
-            QComboBox:hover {
-                border: 1px solid #666;
-            }
-        """)
-
-        self.tabs.setCornerWidget(self.sort_combo, Qt.Corner.TopRightCorner)
-        self.tabs.currentChanged.connect(lambda: self.apply_sorting(self.sort_combo.currentIndex()))
-        
-
+        self.tabs.currentChanged.connect(lambda: self.apply_sorting(self._current_sort_index))
 
         main_layout.addWidget(self.tabs)
 
@@ -129,9 +300,13 @@ class MainWindow(QMainWindow):
         self.settings_tab = QWidget()
         self.init_settings_tab()
         self.tabs.addTab(self.settings_tab, "Settings")
+        
+        # DEBUG: Force switch to Text Expansion tab
+        # self.tabs.setCurrentIndex(1)
 
     def init_settings_tab(self):
         layout = QVBoxLayout(self.settings_tab)
+        layout.setContentsMargins(0, 12, 0, 12)
         layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # Startup
@@ -179,7 +354,7 @@ class MainWindow(QMainWindow):
         # Handle current theme that might not match new names
         current_theme = self.config_manager.get_theme()
         if current_theme not in THEMES:
-            current_theme = "Dark (VS Code)" # Fallback
+            current_theme = "Frost Glass" # Fallback
             self.config_manager.set_theme(current_theme)
             
         self.theme_combo.setCurrentText(current_theme)
@@ -207,43 +382,13 @@ class MainWindow(QMainWindow):
         self.always_on_top_cb.toggled.connect(self.on_always_on_top_toggled)
         layout.addWidget(self.always_on_top_cb)
         
+        # Solid Mode
+        self.solid_mode_cb = QCheckBox("Solid Mode (Disable blur for better performance)")
+        self.solid_mode_cb.setChecked(self.config_manager.get_solid_mode())
+        self.solid_mode_cb.toggled.connect(self.on_solid_mode_toggled)
+        layout.addWidget(self.solid_mode_cb)
+        
         layout.addSpacing(10)
-        
-        # --- Advanced Appearance ---
-        adv_label = QLabel("Custom Appearance")
-        adv_label.setStyleSheet("font-weight: bold; font-size: 13px; color: #888;")
-        layout.addWidget(adv_label)
-        
-        # Accent Color
-        accent_layout = QHBoxLayout()
-        accent_layout.addWidget(QLabel("Accent Color:"))
-        self.accent_btn = QPushButton()
-        self.accent_btn.setFixedSize(50, 20)
-        self.update_accent_btn_color(self.config_manager.get_accent_color())
-        self.accent_btn.clicked.connect(self.on_accent_btn_clicked)
-        accent_layout.addWidget(self.accent_btn)
-        accent_layout.addStretch()
-        layout.addLayout(accent_layout)
-        
-        # Corner Radius
-        radius_layout = QHBoxLayout()
-        radius_layout.addWidget(QLabel("Corner Radius:"))
-        self.radius_slider = QSlider(Qt.Orientation.Horizontal)
-        self.radius_slider.setRange(0, 20)
-        current_radius = self.config_manager.get_corner_radius()
-        self.radius_slider.setValue(current_radius)
-        self.radius_slider.valueChanged.connect(self.on_corner_radius_changed)
-        radius_layout.addWidget(self.radius_slider)
-        self.radius_label = QLabel(f"{current_radius}px")
-        radius_layout.addWidget(self.radius_label)
-        layout.addLayout(radius_layout)
-        
-        # Hide Text Labels
-        self.hide_labels_cb = QCheckBox("Hide Text Labels (Icons Only)")
-        self.hide_labels_cb.setChecked(self.config_manager.get_hide_labels())
-        self.hide_labels_cb.toggled.connect(self.on_hide_labels_toggled)
-        layout.addWidget(self.hide_labels_cb)
-
         layout.addSpacing(20)
 
         # Backup / Restore Section
@@ -268,6 +413,7 @@ class MainWindow(QMainWindow):
 
     def init_hotkey_tab(self):
         layout = QVBoxLayout(self.hotkey_tab)
+        layout.setContentsMargins(0, 12, 0, 12)
         
         # Search Bar
         self.search_input = QLineEdit()
@@ -329,18 +475,19 @@ class MainWindow(QMainWindow):
             # Name Column Logic
             target = hk["target"]
             atype = hk["type"]
-            display_name = ""
+            display_name = hk.get("name", "").strip()
             
-            if atype in ("File", "run", "Folder"):
-                display_name = os.path.basename(os.path.normpath(target))
-            elif atype == "open_url":
-                try:
-                    parsed = urlparse(target)
-                    display_name = parsed.netloc if parsed.netloc else target
-                except:
+            if not display_name:
+                if atype in ("File", "run", "Folder"):
+                    display_name = os.path.basename(os.path.normpath(target))
+                elif atype == "open_url":
+                    try:
+                        parsed = urlparse(target)
+                        display_name = parsed.netloc if parsed.netloc else target
+                    except:
+                        display_name = target
+                else:
                     display_name = target
-            else:
-                display_name = target
                 
             self.table.setItem(i, 4, QTableWidgetItem(display_name))
 
@@ -383,7 +530,8 @@ class MainWindow(QMainWindow):
                 data["type"], 
                 data["target"], 
                 data["suppress"],
-                data.get("long_press", False)
+                data.get("long_press", False),
+                data.get("name", "")
             )
             self.refresh_table()
 
@@ -415,6 +563,23 @@ class MainWindow(QMainWindow):
         self.hide()
         self.close_to_tray_signal.emit()
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if self._drag_pos is not None:
+            delta = event.globalPosition().toPoint() - self._drag_pos
+            self.move(self.pos() + delta)
+            self._drag_pos = event.globalPosition().toPoint()
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        event.accept()
+
+
     def export_backup(self):
         file_path, _ = QFileDialog.getSaveFileName(self, "Export Backup", "backup.json", "JSON Files (*.json)")
         if file_path:
@@ -442,27 +607,69 @@ class MainWindow(QMainWindow):
                 else:
                     QMessageBox.critical(self, "Error", msg)
 
+    def _show_sort_menu(self):
+        """Show a compact popup menu below the sort pill button."""
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background: rgba(18, 20, 36, 0.96);
+                border: 1px solid rgba(255, 255, 255, 0.10);
+                border-radius: 10px;
+                padding: 4px;
+                font-size: 11px;
+                color: rgba(255, 255, 255, 0.80);
+            }
+            QMenu::item {
+                padding: 5px 14px;
+                border-radius: 6px;
+            }
+            QMenu::item:selected {
+                background: rgba(255, 255, 255, 0.10);
+                color: #ffffff;
+            }
+            QMenu::item:checked {
+                color: #3498db;
+                font-weight: 600;
+            }
+        """)
+
+        labels = ["⇅  A → Z", "⇅  Z → A", "⇅  Newest", "⇅  Active"]
+        for i, label in enumerate(labels):
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(i == self._current_sort_index)
+            action.setData(i)
+
+        # Align the right edge of the menu with the right edge of the button
+        pos = self.sort_btn.mapToGlobal(self.sort_btn.rect().bottomRight())
+        pos.setX(pos.x() - menu.sizeHint().width())
+        action_chosen = menu.exec(pos)
+        
+        if action_chosen:
+            idx = action_chosen.data()
+            short = ["A → Z", "Z → A", "Newest", "Active"][idx]
+            self.sort_btn.setText(f"⇅ {short}")
+            self._current_sort_index = idx
+            self.apply_sorting(idx)
+
     def apply_sorting(self, index):
         current_widget = self.tabs.currentWidget()
-        
+
         if current_widget == self.hotkey_tab:
             hotkeys = self.config_manager.get_hotkeys()
-            if index == 0: # Trigger A-Z
+            if index == 0:
                 hotkeys.sort(key=lambda x: x["trigger"].lower())
-            elif index == 1: # Trigger Z-A
+            elif index == 1:
                 hotkeys.sort(key=lambda x: x["trigger"].lower(), reverse=True)
-            elif index == 2: # Date Added
+            elif index == 2:
                 hotkeys.sort(key=lambda x: x.get("created_at", 0), reverse=True)
-            elif index == 3: # Active Status
+            elif index == 3:
                 hotkeys.sort(key=lambda x: x.get("active", True), reverse=True)
-            
-            elif index == 3: # Active Status
-                hotkeys.sort(key=lambda x: x.get("active", True), reverse=True)
-            
             self.refresh_table()
-            
+
         elif current_widget == self.text_expansion_tab:
             self.text_expansion_tab.sort_snippets(index)
+
 
     # --- Appearance Handlers ---
 
@@ -471,72 +678,22 @@ class MainWindow(QMainWindow):
         theme = self.config_manager.get_theme()
         stylesheet = THEMES.get(theme, "")
         if not stylesheet and theme not in THEMES:
-             stylesheet = THEMES.get("Default Dark", "")
+             stylesheet = THEMES.get("Frost Glass", "")
         
-        # 2. Get Advanced Settings
-        accent = self.config_manager.get_accent_color()
-        radius = self.config_manager.get_corner_radius()
+        # 2. Get Settings
         hide_labels = self.config_manager.get_hide_labels()
         
-        # 3. Construct Overrides
-        overrides = ""
-        
-        # Accent Color & Corner Radius
-        # We target specific widgets to apply these overrides
-        
-        # Calculate luminance for text color
-        c = QColor(accent)
-        
-        # Simple luminance formula: 0.299R + 0.587G + 0.114B
-        luminance = (0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue())
-        
-        # If luminance is high (light color), use black text. Otherwise use white.
-        text_color = "#000000" if luminance > 128 else "#ffffff"
-        
-        overrides += f"""
-            QPushButton {{
-                background-color: {accent};
-                color: {text_color};
-                border-radius: {radius}px;
-                border: 1px solid {accent};
-            }}
-            QPushButton:hover {{
-                background-color: {accent}; /* Or slightly lighter? */
-                border: 1px solid #ffffff;
-            }}
-            QLineEdit, QComboBox {{
-                border-radius: {radius}px;
-                border: 1px solid #555; /* Default border */
-            }}
-            QLineEdit:focus, QComboBox:focus {{
-                border: 1px solid {accent};
-            }}
-            QTabBar::tab:selected {{
-                border-top: 2px solid {accent};
-            }}
-            QSlider::handle:horizontal {{
-                background: {accent};
-            }}
-        """
-        
-        # Combine and Apply
-        full_stylesheet = stylesheet + overrides
-        self.setStyleSheet(full_stylesheet)
+        # 3. Apply stylesheet
+        self.setStyleSheet(stylesheet)
 
         # 4. Handle Text Labels
-        # We need to toggle text on specific buttons.
-        # Ideally, we should store their original text.
-        # For simplicity, we hardcode the known original texts here since we control them.
-        
         def set_btn_text(btn, text):
             if hide_labels:
                 btn.setText("")
             else:
                 btn.setText(text)
                 
-        # Main Window Buttons
         if hasattr(self, 'toggle_listener_btn'):
-            # Dynamic text for listener button
             is_running = self.toggle_listener_btn.isChecked()
             current_text = "Stop Listener" if is_running else "Start Listener"
             set_btn_text(self.toggle_listener_btn, current_text)
@@ -546,30 +703,40 @@ class MainWindow(QMainWindow):
             
         if hasattr(self, 'remove_hotkey_btn'):
             set_btn_text(self.remove_hotkey_btn, "Remove Selected")
-            
-        if hasattr(self, 'export_btn'): # Only if we stored ref, let's check init_ui modifications
-            pass # We didn't store export/import refs in init_ui yet implementation plan. 
-                 # Wait, plan said "Assign standard Qt icons... so they are visible".
-                 # I haven't added refs for export/import yet. Let's do that in a separate chunk or just apply to known ones.
 
-        # Opacity
+        # 5. Opacity — only dims the container overlay; DWM blur stays at full opacity.
         opacity = self.config_manager.get_opacity()
-        self.setWindowOpacity(opacity)
+        self.setWindowOpacity(1.0)  # Always keep window fully opaque so DWM acrylic is preserved
+        self._set_container_alpha(opacity)
 
-        # Always on Top
+        # 6. Always on Top & FramelessWindowHint
+        flags = Qt.WindowType.FramelessWindowHint
         always_on_top = self.config_manager.get_always_on_top()
         if always_on_top:
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        else:
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
+             flags |= Qt.WindowType.WindowStaysOnTopHint
+             
+        self.setWindowFlags(flags)
         
         self.show() # Required to re-apply flags
         
-        # Apply Blur Effect
+        # 7. Apply DWM acrylic blur with deep navy-blue tint (Windows 11 Mica style)
         try:
-            apply_blur(int(self.winId()))
-        except Exception as e:
-            print(f"Error applying blur: {e}")
+            if self.config_manager.get_solid_mode():
+                remove_blur(int(self.winId()))
+                # Overwrite container background to solid color when blur is off
+                if hasattr(self, 'container'):
+                    self.container.setStyleSheet("""
+                        QFrame#AppContainer {
+                            background-color: rgb(18, 20, 36);
+                            border: 1px solid rgba(255, 255, 255, 0.1);
+                            border-radius: 20px;
+                        }
+                    """)
+            else:
+                apply_acrylic_blur(int(self.winId()), gradient_color=GRADIENT_DEEP_BLUE)
+        except Exception as _blur_err:
+            print(f"Acrylic blur failed: {_blur_err}")
+
 
     def update_accent_btn_color(self, color):
         self.accent_btn.setStyleSheet(f"background-color: {color}; border: 1px solid #555;")
@@ -602,19 +769,51 @@ class MainWindow(QMainWindow):
     def on_opacity_changed(self, value):
         opacity = value / 100.0
         self.config_manager.set_opacity(opacity)
-        self.setWindowOpacity(opacity)
+        # Don't touch setWindowOpacity — that would kill the DWM acrylic blur.
+        # Instead, dim only the container overlay so the blur stays solid.
+        self._set_container_alpha(opacity)
         self.opacity_label.setText(f"{value}%")
+
+    def _set_container_alpha(self, opacity: float):
+        """
+        Maps the user's 0.20–1.0 opacity setting to the container background alpha.
+        With BLURBEHIND, we need the container itself to provide the dark tint.
+        At 1.0  → alpha 0.85  (very dark overlay)
+        At 0.20 → alpha 0.20  (nearly invisible overlay, maximum blur / glass feel)
+        """
+        # Linear interpolation
+        min_alpha, max_alpha = 0.20, 0.85
+        alpha = min_alpha + (opacity - 0.20) / 0.80 * (max_alpha - min_alpha)
+        alpha = max(min_alpha, min(max_alpha, alpha))  # clamp
+        if hasattr(self, 'container'):
+            self.container.setStyleSheet(f"""
+                QFrame#AppContainer {{
+                    background-color: rgba(12, 14, 26, {alpha:.2f});
+                    border: none;
+                    border-radius: 20px;
+                }}
+            """)
+
+    def on_solid_mode_toggled(self, checked):
+        self.config_manager.set_solid_mode(checked)
+        self.apply_appearance_settings()
 
     def on_always_on_top_toggled(self, checked):
         self.config_manager.set_always_on_top(checked)
         # Toggling window flags usually hides the window, so we need to be careful
-        # apply_appearance_settings calls show(), which handles it.
-        # However, calling it directly here for smoother UX
+        flags = Qt.WindowType.FramelessWindowHint
         if checked:
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
-        else:
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
         self.show()
+        # Re-apply acrylic blur because changing flags drops DWM attributes
+        try:
+            if self.config_manager.get_solid_mode():
+                remove_blur(int(self.winId()))
+            else:
+                apply_acrylic_blur(int(self.winId()), gradient_color=GRADIENT_DEEP_BLUE)
+        except Exception as _e:
+            print(f"Re-apply blur failed: {_e}")
 
     def on_context_menu_toggled(self, checked):
         if checked:

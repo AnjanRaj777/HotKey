@@ -1,7 +1,9 @@
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QLineEdit, 
-                             QComboBox, QCheckBox, QPushButton, QHBoxLayout, 
-                             QFileDialog, QDialogButtonBox, QMessageBox)
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QLineEdit,
+                             QComboBox, QCheckBox, QPushButton, QHBoxLayout,
+                             QFileDialog, QDialogButtonBox, QMessageBox, QFrame)
+from PyQt6.QtCore import Qt
 from ui.key_recorder import KeyRecorder
+from ui.blur_effect import apply_acrylic_blur, GRADIENT_DEEP_BLUE
 
 class AddHotkeyDialog(QDialog):
     def __init__(self, parent=None, hotkey_data=None):
@@ -9,10 +11,37 @@ class AddHotkeyDialog(QDialog):
         self.hotkey_data = hotkey_data
         self.setWindowTitle("Edit Hotkey" if hotkey_data else "Add Hotkey")
         self.setFixedWidth(400)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.init_ui()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        try:
+            apply_acrylic_blur(int(self.winId()), gradient_color=GRADIENT_DEEP_BLUE)
+        except Exception:
+            pass
+
     def init_ui(self):
-        layout = QVBoxLayout(self)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        
+        container = QFrame()
+        container.setObjectName("dialogContainer")
+        container.setStyleSheet("""
+            QFrame#dialogContainer {
+                background-color: rgba(12, 14, 26, 0.28);
+                border: none;
+                border-radius: 20px;
+            }
+            QLabel { color: #f0f0f0; }
+        """)
+        
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.addWidget(container)
 
         # 1. Trigger Key
         layout.addWidget(QLabel("Trigger Key (e.g., ctrl+alt+t):"))
@@ -36,6 +65,12 @@ class AddHotkeyDialog(QDialog):
         target_layout.addWidget(self.browse_btn)
         
         layout.addLayout(target_layout)
+
+        # 3.5. Name (Optional)
+        layout.addWidget(QLabel("Name (Optional):"))
+        self.name_input = QLineEdit()
+        self.name_input.setPlaceholderText("Custom display name for the hotkey")
+        layout.addWidget(self.name_input)
 
         # Note Label (Dynamic)
         self.note_label = QLabel("")
@@ -73,6 +108,7 @@ class AddHotkeyDialog(QDialog):
             # Pre-fill data
             self.trigger_input.setText(self.hotkey_data.get("trigger", ""))
             self.target_input.setText(self.hotkey_data.get("target", ""))
+            self.name_input.setText(self.hotkey_data.get("name", ""))
             self.block_cb.setChecked(self.hotkey_data.get("suppress", False))
             self.long_press_cb.setChecked(self.hotkey_data.get("long_press", False))
             
@@ -142,6 +178,23 @@ class AddHotkeyDialog(QDialog):
             "trigger": self.trigger_input.text().strip(),
             "type": self.type_combo.currentText(),
             "target": self.target_input.text().strip(),
+            "name": self.name_input.text().strip(),
             "suppress": self.block_cb.isChecked(),
             "long_press": self.long_press_cb.isChecked()
         }
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        if hasattr(self, '_drag_pos') and self._drag_pos is not None:
+            delta = event.globalPosition().toPoint() - self._drag_pos
+            self.move(self.pos() + delta)
+            self._drag_pos = event.globalPosition().toPoint()
+            event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        event.accept()

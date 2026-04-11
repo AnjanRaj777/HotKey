@@ -16,6 +16,7 @@ class WorkspacesTab(QWidget):
 
     def init_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 12, 0, 12)
         
         # Search Bar
         self.search_input = QLineEdit()
@@ -44,7 +45,6 @@ class WorkspacesTab(QWidget):
         remove_btn.clicked.connect(self.remove_workspace)
         
         switch_btn = QPushButton("Switch To Selected")
-        switch_btn.setStyleSheet("font-weight: bold; background-color: #2da44e; color: white;")
         switch_btn.clicked.connect(self.on_switch_clicked)
 
         btn_layout.addWidget(add_btn)

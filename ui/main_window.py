@@ -245,7 +245,13 @@ class MainWindow(QMainWindow):
         self.toggle_listener_btn.setCheckable(True)
         self.toggle_listener_btn.setChecked(True)
         self.toggle_listener_btn.clicked.connect(self.on_toggle_listener)
-        self.tabs.setCornerWidget(self.toggle_listener_btn, Qt.Corner.TopRightCorner)
+        
+        corner_container = QWidget()
+        corner_layout = QHBoxLayout(corner_container)
+        corner_layout.setContentsMargins(0, 0, 15, 0)  # Add right margin to prevent clipping
+        corner_layout.setSpacing(0)
+        corner_layout.addWidget(self.toggle_listener_btn)
+        self.tabs.setCornerWidget(corner_container, Qt.Corner.TopRightCorner)
 
         main_layout.addWidget(self.tabs)
 

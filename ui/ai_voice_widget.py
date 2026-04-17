@@ -252,10 +252,22 @@ class AiVoiceWidget(QWidget):
     def toggle_voice_mode(self, auto=False):
         # Attempt to click the microphone or voice icon on the page via JS
         # This is a heuristic. For ChatGPT, the voice mode is often a headphone icon.
-        # This script logs for now, as selecting the exact element is site-specific and brittle.
-        # Ideally, we inject a script to find aria-labels like "Start voice conversation"
+        # ideally, we inject a script to find aria-labels like "Start voice conversation"
         js_code = """
         (function() {
+            if (auto_trigger) {
+                const texts = Array.from(document.querySelectorAll('a, button')).map(e => (e.innerText || "").toLowerCase().trim());
+                if (texts.includes("log in") || texts.includes("sign up") || texts.includes("login")) {
+                    console.log("Auto-start aborted: User not logged in.");
+                    return "NOT_LOGGED_IN";
+                }
+                const url = window.location.href.toLowerCase();
+                if (url.includes("login") || url.includes("auth")) {
+                    console.log("Auto-start aborted: Auth page.");
+                    return "NOT_LOGGED_IN";
+                }
+            }
+
             console.log("Attempting to find Voice Mode button...");
             
             // Strategy 1: Known data-testids
@@ -265,7 +277,7 @@ class AiVoiceWidget(QWidget):
                 if (btn) {
                     console.log(`Found by data-testid: ${id}`);
                     btn.click();
-                    return;
+                    return "SUCCESS";
                 }
             }
 
@@ -276,7 +288,7 @@ class AiVoiceWidget(QWidget):
                  if (label.includes('use voice') || label.includes('start voice') || label.includes('listen')) {
                      console.log("Found by label:", label);
                      btn.click();
-                     return;
+                     return "SUCCESS";
                  }
             }
             
@@ -286,20 +298,25 @@ class AiVoiceWidget(QWidget):
             } else {
                console.log("Auto-start voice: Button not found.");
             }
+            return "NOT_FOUND";
         })();
         """
         # Inject 'true' or 'false' for auto_trigger
         js_code = js_code.replace("auto_trigger", "true" if auto else "false")
         
-        self.webview.page().runJavaScript(js_code)
-        
-        # Visual feedback
-        if self.voice_btn.text() == "▸":
-            self.voice_btn.setText("⏸")
-            self.voice_btn.setStyleSheet("background-color: #007acc; color: white; border-radius: 10px; font-size: 20px; font-weight: bold;")
-        else:
-             self.voice_btn.setText("▸")
-             self.voice_btn.setStyleSheet("background-color: #888; color: black; border-radius: 10px; font-size: 20px; font-weight: bold;")
+        def handle_js_result(result):
+            if result == "NOT_LOGGED_IN":
+                return
+            
+            # Visual feedback
+            if self.voice_btn.text() == "▸":
+                self.voice_btn.setText("⏸")
+                self.voice_btn.setStyleSheet("background-color: #007acc; color: white; border-radius: 10px; font-size: 20px; font-weight: bold;")
+            else:
+                 self.voice_btn.setText("▸")
+                 self.voice_btn.setStyleSheet("background-color: #888; color: black; border-radius: 10px; font-size: 20px; font-weight: bold;")
+
+        self.webview.page().runJavaScript(js_code, handle_js_result)
 
 
 

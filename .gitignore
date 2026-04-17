@@ -5,5 +5,17 @@ __pycache__/
 config.json
 dist/
 build/
+main.build/
+main.dist/
 .idea/
 .vscode/
+
+# Logs
+*.log
+debug_output.txt
+exeFile.txt
+
+# Temp / Test files
+test_backup.json
+test_config.json
+web_data/

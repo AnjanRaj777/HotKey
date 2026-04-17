@@ -180,6 +180,12 @@ class MainWindow(QMainWindow):
         title_layout = QHBoxLayout(title_bar)
         title_layout.setContentsMargins(12, 0, 8, 0)
         
+        # Notification Light
+        self.status_label = QLabel()
+        self.status_label.setFixedSize(12, 12)
+        self.status_label.setToolTip("Listener Stopped")
+        self.status_label.setStyleSheet("background-color: red; border-radius: 6px; border: 1px solid #555;")
+        
         # App Icon / Title
         title_icon = QLabel()
         _logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logo.PNG")
@@ -213,23 +219,14 @@ class MainWindow(QMainWindow):
         
         title_layout.addWidget(title_icon)
         title_layout.addWidget(title_label)
+        title_layout.addSpacing(8)
+        title_layout.addWidget(self.status_label)
         title_layout.addStretch()
         title_layout.addLayout(btn_layout)
         
         main_layout.addWidget(title_bar)
 
-        # Header (Common for both tabs)
-        header_layout = QHBoxLayout()
-        self.status_label = QLabel()
-        self.status_label.setFixedSize(12, 12)
-        self.status_label.setToolTip("Listener Stopped")
-        self.status_label.setStyleSheet("background-color: red; border-radius: 6px; border: 1px solid #555;")
-        self.toggle_listener_btn = QPushButton("Start Listener")
-        self.toggle_listener_btn.setIcon(QApplication.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
-        self.toggle_listener_btn.setCheckable(True)
-        self.toggle_listener_btn.clicked.connect(self.on_toggle_listener)
-        
-        # --- Minimal sort pill button in global header ---
+        # Sort options
         self._sort_options = [
             ("A → Z",  0),
             ("Z → A",  1),
@@ -238,42 +235,17 @@ class MainWindow(QMainWindow):
         ]
         self._current_sort_index = 0
 
-        self.sort_btn = QPushButton("\u21c5 A → Z")
-        self.sort_btn.setFixedHeight(24)
-        self.sort_btn.setFixedWidth(85)
-        self.sort_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.sort_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255, 255, 255, 0.07);
-                color: rgba(255, 255, 255, 0.55);
-                border: 1px solid rgba(255, 255, 255, 0.10);
-                border-radius: 12px;
-                font-size: 10px;
-                font-weight: 500;
-                padding: 0px 8px;
-            }
-            QPushButton:hover {
-                background: rgba(255, 255, 255, 0.13);
-                color: rgba(255, 255, 255, 0.85);
-                border: 1px solid rgba(255, 255, 255, 0.20);
-            }
-            QPushButton:pressed {
-                background: rgba(255, 255, 255, 0.05);
-            }
-        """)
-        self.sort_btn.clicked.connect(self._show_sort_menu)
-
-        header_layout.addWidget(self.status_label)
-        header_layout.addStretch()
-        header_layout.addWidget(self.sort_btn)
-        header_layout.addSpacing(10)
-        header_layout.addWidget(self.toggle_listener_btn)
-
-        main_layout.addLayout(header_layout)
-
         # Tabs
         self.tabs = QTabWidget()
         self.tabs.currentChanged.connect(lambda: self.apply_sorting(self._current_sort_index))
+
+        # Listener button embedded in the tab bar row (corner widget)
+        self.toggle_listener_btn = QPushButton("  Stop Listener")
+        self.toggle_listener_btn.setIcon(QApplication.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop))
+        self.toggle_listener_btn.setCheckable(True)
+        self.toggle_listener_btn.setChecked(True)
+        self.toggle_listener_btn.clicked.connect(self.on_toggle_listener)
+        self.tabs.setCornerWidget(self.toggle_listener_btn, Qt.Corner.TopRightCorner)
 
         main_layout.addWidget(self.tabs)
 
@@ -415,11 +387,58 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(self.hotkey_tab)
         layout.setContentsMargins(0, 12, 0, 12)
         
-        # Search Bar
+        # Search Bar with Embedded Filter
+        search_container = QFrame()
+        search_container.setObjectName("SortSearchBar")
+        search_container.setStyleSheet("""
+            QFrame#SortSearchBar {
+                background-color: rgba(255, 255, 255, 0.08);
+                border: 1px solid rgba(255, 255, 255, 0.18);
+                border-radius: 10px;
+            }
+            QFrame#SortSearchBar QLineEdit {
+                background: transparent;
+                border: none;
+                padding: 8px 4px 8px 12px;
+                font-size: 13px;
+                color: #e0e0e0;
+            }
+            QFrame#SortSearchBar QPushButton {
+                background: transparent;
+                border: none;
+                color: rgba(255, 255, 255, 0.7);
+                font-size: 11px;
+                font-weight: 600;
+                padding: 0 12px;
+                border-left: 1px solid rgba(255, 255, 255, 0.18);
+                border-radius: 0px;
+                border-top-right-radius: 10px;
+                border-bottom-right-radius: 10px;
+            }
+            QFrame#SortSearchBar QPushButton:hover {
+                background: rgba(255, 255, 255, 0.05);
+                color: #ffffff;
+            }
+            QFrame#SortSearchBar QPushButton:pressed {
+                background: rgba(255, 255, 255, 0.02);
+            }
+        """)
+        search_layout = QHBoxLayout(search_container)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(0)
+
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search hotkeys...")
         self.search_input.textChanged.connect(self.filter_hotkeys)
-        layout.addWidget(self.search_input)
+
+        self.sort_btn = QPushButton("\u21c5 A → Z")
+        self.sort_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sort_btn.clicked.connect(self._show_sort_menu)
+
+        search_layout.addWidget(self.search_input)
+        search_layout.addWidget(self.sort_btn)
+        
+        layout.addWidget(search_container)
         
         # Table
         self.table = QTableWidget()

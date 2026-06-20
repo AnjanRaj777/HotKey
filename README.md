@@ -26,29 +26,6 @@ Built with Python and PyQt6, HotKey offers a modern, responsive interface and ru
 *   Windows 10 or 11
 *   Python 3.8 or higher
 
-### Steps
-
-1.  **Clone the Repository**
-
-    ```bash
-    git clone https://github.com/AnjanRaj777/HotKey.git
-    cd HotKey
-    ```
-
-2.  **Install Dependencies**
-
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-3.  **Run the Application**
-
-    ```bash
-    python main.py
-    ```
-
-## Usage
-
 ### Managing Hotkeys
 
 1.  Open the application from the system tray or run `main.py`.
